@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import type { ExtensionAPI, ExtensionContext, Theme } from '@earendil-works/pi-coding-agent';
 import { mixColors, truncateToWidth } from '@earendil-works/pi-tui';
+import { findCiRuns, parsePush, type CiRun, type Runner } from './autofollow.ts';
 import { genericAdapter } from './adapters/generic.ts';
 import { githubAdapter, parseRunSpec, RUN_FIELDS } from './adapters/github.ts';
 import { gxmcpAdapter } from './adapters/gxmcp.ts';
@@ -36,6 +37,8 @@ interface Watch {
   stepStartedAt: number;
   /** Step that was already running when the watch attached: its measured time would be short. */
   partialIndex: number;
+  /** Set when started by a push: the repo and the other CI runs of that commit still to follow. */
+  auto?: { repo: string; rest: CiRun[] };
   runStartedAt?: number;
   finishedAt?: number;
   learned: Record<string, number>;
@@ -68,14 +71,23 @@ function saveHistory(key: string, history: History): void {
   } catch { /* history is best effort */ }
 }
 
-function gh(args: string[], cwd: string | undefined): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile('gh', args, { cwd, timeout: 30_000, windowsHide: true }, (error, stdout, stderr) => {
+const execRunner: Runner = (file, args, cwd) =>
+  new Promise((resolve, reject) => {
+    execFile(file, args, { cwd, timeout: file === 'gh' ? 30_000 : 15_000, windowsHide: true }, (error, stdout, stderr) => {
       if (error) reject(new Error((stderr || error.message).trim().split('\n')[0]));
       else resolve(stdout);
     });
   });
+
+const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms).unref());
+
+/** External effects of the extension; tests inject fakes. */
+export interface Deps {
+  run: Runner;
+  sleep: (ms: number) => Promise<void>;
 }
+
+const autoFollowDefault = !/^(off|0|false|no)$/i.test(process.env.PI_RELEASE_AUTO ?? '');
 
 /** Newest fresh status file any adapter understands, if its run is live or just finished. */
 function discover(dismissed: Set<string>): Source | undefined {
@@ -117,6 +129,17 @@ function themePaint(theme: Theme): Paint {
 }
 
 export default function releaseProgress(pi: ExtensionAPI) {
+  createReleaseProgress({ run: execRunner, sleep: realSleep })(pi);
+}
+
+export function createReleaseProgress({ run, sleep }: Deps) {
+  return (pi: ExtensionAPI) => register(pi, run, sleep);
+}
+
+function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<void>) {
+  const gh = (args: string[], cwd: string | undefined) => run('gh', args, cwd ?? process.cwd());
+  let autoFollow = autoFollowDefault;
+  let followSeq = 0; // bumped by every push and by /release off: a lookup that sees a newer value gives up
   let ctx: ExtensionContext | undefined;
   let watch: Watch | undefined;
   let history: History = { seconds: {} };
@@ -208,7 +231,7 @@ export default function releaseProgress(pi: ExtensionAPI) {
     requestRender?.();
   };
 
-  const attach = (source: Source, raw: Record<string, unknown>, pinned: boolean): string | undefined => {
+  const attach = (source: Source, raw: Record<string, unknown>, pinned: boolean, auto?: Watch['auto']): string | undefined => {
     const adapter = adapterFor(raw);
     if (!adapter) return 'unknown status format';
     const key = adapter.key(raw);
@@ -218,7 +241,7 @@ export default function releaseProgress(pi: ExtensionAPI) {
     const updated = Date.parse(String(raw.updatedAtUtc ?? raw.updatedAt ?? '')) || (source.kind === 'file' ? source.mtime : Date.now());
     const atStart = snapshot.restarted || index <= 0;
     watch = {
-      source, pinned, adapter, key, raw, snapshot, index, learned: {},
+      source, pinned, auto, adapter, key, raw, snapshot, index, learned: {},
       stepStartedAt: updated,
       partialIndex: atStart ? -1 : index,
       runStartedAt: snapshot.restarted ? updated : undefined,
@@ -249,6 +272,37 @@ export default function releaseProgress(pi: ExtensionAPI) {
       .finally(() => { ghInFlight = false; });
   };
 
+  /** Attach the next CI run of a push; the rest of the queue goes with it. */
+  const attachAuto = async (repo: string, runs: CiRun[]) => {
+    const [next, ...rest] = runs;
+    const source: Extract<Source, { kind: 'gh' }> = { kind: 'gh', id: next.id, repo };
+    attach(source, await fetchRun(source), false, { repo, rest });
+  };
+
+  let advancing = false;
+  const advanceAuto = (target: Watch) => {
+    if (advancing || !target.auto?.rest.length || !target.finishedAt) return;
+    advancing = true;
+    attachAuto(target.auto.repo, target.auto.rest)
+      .catch(() => { target.auto = undefined; }) // stay on the finished run; it lingers and hides as usual
+      .finally(() => { advancing = false; });
+  };
+
+  /** Look for the CI runs of a push in the background and show them unless something more important is on screen. */
+  const followPush = async (push: { dir: string }, output: string, context: ExtensionContext) => {
+    const seq = ++followSeq;
+    const cancelled = () => seq !== followSeq || !autoFollow;
+    try {
+      const found = await findCiRuns(push, output, { run, sleep, cancelled });
+      if (!found || cancelled()) return;
+      if (watch && (watch.pinned || (watch.snapshot.state === 'running' && !watch.auto))) return;
+      if (found.runs.length > 1) context.ui.notify(`Following ${found.runs.length} CI runs for ${found.sha.slice(0, 7)} (${found.repo})`, 'info');
+      await attachAuto(found.repo, found.runs);
+    } catch (error) {
+      if (!cancelled()) context.ui.notify(`CI follow failed: ${(error as Error).message}`, 'warning');
+    }
+  };
+
   const poll = () => {
     const target = watch;
     if (!target) return;
@@ -264,7 +318,8 @@ export default function releaseProgress(pi: ExtensionAPI) {
         }
       }
     }
-    if (!target.pinned && target.finishedAt && Date.now() - target.finishedAt > LINGER_MS) {
+    advanceAuto(target);
+    if (!target.pinned && target.finishedAt && !target.auto?.rest.length && Date.now() - target.finishedAt > LINGER_MS) {
       dismissed.add(sourceId(target.source));
       watch = undefined;
       hide();
@@ -285,7 +340,18 @@ export default function releaseProgress(pi: ExtensionAPI) {
     discoverTimer = setInterval(scan, DISCOVER_MS);
   });
 
+  pi.on('tool_result', (event, context) => {
+    if (!autoFollow || !context.hasUI || event.isError) return;
+    if ((event.toolName !== 'bash' && event.toolName !== 'powershell') || typeof event.input.command !== 'string') return;
+    const push = parsePush(event.input.command, context.cwd);
+    if (!push) return;
+    ctx = context;
+    const output = event.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n');
+    void followPush(push, output, context);
+  });
+
   pi.on('session_shutdown', () => {
+    followSeq++;
     clearInterval(pollTimer);
     clearInterval(discoverTimer);
     hide();
@@ -294,15 +360,29 @@ export default function releaseProgress(pi: ExtensionAPI) {
   });
 
   pi.registerCommand('release', {
-    description: 'Live release progress: /release [status-file | gh [run-url | owner/repo#id | id | owner/repo] | off]',
+    description: 'Live release progress: /release [status-file | gh [run-url | owner/repo#id | id | owner/repo] | auto [on|off] | off]',
     handler: async (args, context) => {
       ctx = context;
       const arg = args.trim().replace(/^["']|["']$/g, '');
+      if (arg === 'auto' || arg.startsWith('auto ')) {
+        const mode = arg.slice(4).trim();
+        if (mode === 'on' || mode === 'off') {
+          autoFollow = mode === 'on';
+          followSeq++;
+        } else if (mode) {
+          context.ui.notify('Usage: /release auto [on|off]', 'error');
+          return;
+        }
+        context.ui.notify(`Following CI after a push: ${autoFollow ? 'on' : 'off'}.`, 'info');
+        return;
+      }
       if (arg === 'off') {
+        autoFollow = false;
+        followSeq++;
         if (watch) dismissed.add(sourceId(watch.source));
         watch = undefined;
         hide();
-        context.ui.notify('Release progress hidden until the next run.', 'info');
+        context.ui.notify('Release progress hidden until the next run; CI follow after a push is off (/release auto on to resume).', 'info');
         return;
       }
       if (arg === 'gh' || arg.startsWith('gh ')) {

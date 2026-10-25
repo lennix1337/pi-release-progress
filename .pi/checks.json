@@ -2,8 +2,8 @@
   "version": 1,
   "checks": {
     "test": {
-      "description": "Progress model, adapters (generic, GX release.ps1, GitHub Actions), render and release-status CLI",
-      "argv": ["node", "--test", "test/progress.test.ts"],
+      "description": "Progress model, adapters (generic, GX release.ps1, GitHub Actions), render, release-status CLI and CI follow after a push",
+      "argv": ["node", "--test", "test/progress.test.ts", "test/autofollow.test.ts"],
       "timeoutMs": 60000,
       "onEdit": true
     },

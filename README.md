@@ -17,7 +17,17 @@ my-app 1.0.2  ⠦ releasing  ~0m41s left · 1m12s elapsed
 | **Genexus18MCP `release.ps1 -StatusFile`** | same, automatically | parsed from the script's `Step "..."` calls |
 | **GitHub Actions run** | `/release gh [run-url \| owner/repo#id \| id \| owner/repo]` (no id: newest in-progress run) | jobs are steps, the running job's steps are sub-progress |
 
-Commands: `/release` pins the current/latest run, `/release <status-file>` follows a file, `/release off` hides it until the next run.
+Commands: `/release` pins the current/latest run, `/release <status-file>` follows a file, `/release off` hides it until the next run and turns CI follow after a push off for the rest of the session, `/release auto [on|off]` shows or sets that CI follow.
+
+## CI follow after a push
+
+When a `git push` run through Pi's `bash` (or `powershell`) tool succeeds, the widget follows the GitHub Actions run(s) of the pushed commit, so there is no need for a `gh run watch` background shell.
+
+- **Detection**: a successful `tool_result` whose `command` contains `git push` (not `--dry-run`, `--delete`). The repository directory is the last `cd <dir> &&` before the push, or `git -C <dir>`, else the session cwd. The repo is the `To <url>` line of the push output (github.com only; without it, `origin`); the commit is the new end of `old..new  branch -> branch` in that output, else `HEAD`. Pushes typed by the user in the `!`/`!!` shell are not seen (only agent tool calls are).
+- **Lookup**: `gh run list -R owner/repo --commit <sha>` after 3 s, then every 5 s for about a minute, because the run appears a moment after the push. No run (a repo without CI) means nothing is shown. If `gh` keeps failing, one warning is notified.
+- **Following**: the first unfinished run is shown with the usual job bar; with several workflows they are followed one after another and a notice gives the count. A newer push replaces the previous auto-followed run.
+- **Never steals** the widget from a pinned run (`/release ...`) or a release status file that is still running.
+- **Off**: `/release auto off`, `/release off` (session-wide), or `PI_RELEASE_AUTO=off` for the default. Nothing polls while idle; the lookup only runs for a few seconds after a push and `gh run view` only while a run is shown.
 
 ## Integrate a release script
 
@@ -74,7 +84,8 @@ The GitHub adapter (`src/adapters/github.ts`) is the smallest example.
 | `PI_RELEASE_STATUS_DIRS` | `C:/tmp` and the OS temp dir (`;`-separated on Windows) |
 | `PI_RELEASE_HISTORY` | `%LOCALAPPDATA%/pi-release-progress/history.json` |
 | `PI_RELEASE_PROJECTS` | `C:/projetos` (where the GX adapter looks for `release.ps1`) |
+| `PI_RELEASE_AUTO` | on; `off` stops following CI after a push (`/release auto on` re-enables it) |
 
 ## Develop
 
-`npm test` (unit), `npm run typecheck`, `node test/smoke.replay.ts [run-url]` (drives the real extension with a fake Pi through all three sources; the GitHub part calls `gh run view`, read-only).
+`npm test` (unit, plus the CI follow with a faked git/gh layer: no network), `npm run typecheck`, `node test/smoke.replay.ts [run-url]` (drives the real extension with a fake Pi through all three sources; the GitHub part calls `gh run view`, read-only).

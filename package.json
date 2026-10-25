@@ -1,0 +1,29 @@
+{
+  "name": "pi-release-progress",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pi widget with a live progress bar, ETA and step for any running release: a generic status file (written by bin/release-status.mjs), Genexus18MCP release.ps1, or a GitHub Actions run.",
+  "bin": {
+    "release-status": "./bin/release-status.mjs"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^1.4.0",
+    "@earendil-works/pi-tui": "^1.4.0",
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2"
+  }
+}

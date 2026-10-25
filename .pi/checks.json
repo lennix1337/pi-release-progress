@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "checks": {
+    "test": {
+      "description": "Progress model, adapters (generic, GX release.ps1, GitHub Actions), render and release-status CLI",
+      "argv": ["node", "--test", "test/progress.test.ts"],
+      "timeoutMs": 60000,
+      "onEdit": true
+    },
+    "typecheck": {
+      "description": "TypeScript strict typecheck against the Pi 1.4 extension API",
+      "argv": ["node", "node_modules/typescript/bin/tsc", "--noEmit", "-p", "."],
+      "timeoutMs": 120000
+    }
+  }
+}

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { mock, test } from 'node:test';
@@ -308,6 +310,73 @@ test('extension: several runs are followed one after another, with a count', asy
     assert.match(s.widget()?.render(80).join('\n') ?? '', /Docs/);
   } finally { s.shutdown(); }
 });
+
+for (const format of ['generic', 'gxmcp']) {
+  test(`extension: ${format} process gone hides after 60 seconds without rediscovery`, async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: Date.now() });
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    await once(child, 'spawn');
+    const file = join(dir, `${format}-release-status.json`);
+    const raw = format === 'generic'
+      ? { schema: 'pi-release-progress/1', name: 'Test release', state: 'running', step: 'Publish', steps: ['Publish'], pid: child.pid }
+      : { version: '3.0.1', phase: 'complete', state: 'running', publicationState: 'pending', pid: child.pid };
+    writeFileSync(file, JSON.stringify(raw));
+    const s = await session(() => { throw new Error('unexpected network request'); });
+    try {
+      assert.ok(s.widget(), 'a live release is discovered');
+      assert.doesNotMatch(s.widget()!.render(80).join('\n'), /process gone/);
+      const stopped = once(child, 'exit');
+      child.kill();
+      await stopped;
+      t.mock.timers.tick(1000);
+      assert.match(s.widget()!.render(80).join('\n'), /process gone/);
+      t.mock.timers.tick(59_000);
+      assert.ok(s.widget(), 'keep the warning visible for the linger period');
+      t.mock.timers.tick(2000);
+      assert.equal(s.widget(), undefined, 'dismiss after the same 60-second delay as completion');
+      t.mock.timers.tick(10_000);
+      assert.equal(s.widget(), undefined, 'the unchanged running status must not reappear');
+      assert.deepEqual(s.notes, [], 'process disappearance must not be reported as release success or failure');
+    } finally {
+      s.shutdown();
+      rmSync(file);
+      if (child.exitCode === null && child.signalCode === null) {
+        const stopped = once(child, 'exit');
+        child.kill();
+        await stopped;
+      }
+    }
+  });
+}
+
+for (const state of ['succeeded', 'failed']) {
+  test(`extension: ${state} status still hides after 60 seconds`, async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: Date.now() });
+    const file = join(dir, 'finished-release-status.json');
+    writeFileSync(file, JSON.stringify({ schema: 'pi-release-progress/1', name: 'Finished release', state, updatedAt: new Date().toISOString() }));
+    const s = await session(() => { throw new Error('unexpected network request'); });
+    try {
+      t.mock.timers.tick(59_000);
+      assert.ok(s.widget());
+      t.mock.timers.tick(2000);
+      assert.equal(s.widget(), undefined);
+    } finally { s.shutdown(); rmSync(file); }
+  });
+}
+
+for (const pid of [process.pid, undefined]) {
+  test(`extension: running status with ${pid ? 'live' : 'unknown'} PID does not expire`, async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: Date.now() });
+    const file = join(dir, 'live-release-status.json');
+    writeFileSync(file, JSON.stringify({ schema: 'pi-release-progress/1', name: 'Live release', state: 'running', pid, startedAt: new Date().toISOString() }));
+    const s = await session(() => { throw new Error('unexpected network request'); });
+    try {
+      t.mock.timers.tick(120_000);
+      assert.ok(s.widget());
+      assert.doesNotMatch(s.widget()!.render(80).join('\n'), /process gone/);
+    } finally { s.shutdown(); rmSync(file); }
+  });
+}
 
 test('extension: no UI, no auto-follow', async () => {
   const s = await session(() => runsJson([1, 'in_progress']), { hasUI: false });

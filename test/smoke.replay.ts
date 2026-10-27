@@ -1,7 +1,7 @@
 // Manual smoke: loads the real extension with a fake Pi and prints widget frames for
 // three sources: a release.ps1-style status file, a generic script driven by the
 // release-status CLI, and (with `gh` signed in) a real GitHub Actions run.
-// Run: node test/smoke.replay.ts [run-url]
+// Run: node test/smoke.replay.ts --offline (or supply a run-url for live GitHub).
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -74,10 +74,12 @@ for (const runNumber of [1, 2]) {
 }
 await command?.('off', ctx);
 
-// 3. A GitHub Actions run (read-only `gh run view`).
-const runUrl = process.argv[2] ?? 'https://github.com/lennix1337/Genexus18MCP/actions/runs/40207706430';
-await command?.(`gh ${runUrl}`, ctx);
-frame(`gh ${runUrl}`);
+// 3. A GitHub Actions run, only when explicitly requested (read-only `gh run view`).
+const runUrl = process.argv[2];
+if (runUrl && runUrl !== '--offline') {
+  await command?.(`gh ${runUrl}`, ctx);
+  frame(`gh ${runUrl}`);
+}
 
 console.log('notes:', notes);
 handlers.session_shutdown({}, ctx);

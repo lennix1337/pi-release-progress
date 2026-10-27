@@ -41,6 +41,7 @@ interface Watch {
   auto?: { repo: string; rest: CiRun[] };
   runStartedAt?: number;
   finishedAt?: number;
+  processGoneAt?: number;
   learned: Record<string, number>;
 }
 
@@ -201,7 +202,7 @@ function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<
     const newRun = (snapshot.restarted && !previous.restarted)
       || (!!snapshot.startedAt && !!previous.startedAt && snapshot.startedAt !== previous.startedAt);
     if (newRun) {
-      Object.assign(target, { index: -1, partialIndex: -1, stepStartedAt: now, runStartedAt: now, finishedAt: undefined, learned: {} });
+      Object.assign(target, { index: -1, partialIndex: -1, stepStartedAt: now, runStartedAt: now, finishedAt: undefined, processGoneAt: undefined, learned: {} });
       history = loadHistory(target.key);
       snapshot = target.adapter.read(raw, history);
     }
@@ -318,8 +319,11 @@ function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<
         }
       }
     }
+    if (target.snapshot.state === 'running' && !processAlive(target.snapshot.pid)) target.processGoneAt ??= Date.now();
+    else target.processGoneAt = undefined;
     advanceAuto(target);
-    if (!target.pinned && target.finishedAt && !target.auto?.rest.length && Date.now() - target.finishedAt > LINGER_MS) {
+    const dismissAt = target.finishedAt ?? target.processGoneAt;
+    if (!target.pinned && dismissAt !== undefined && !target.auto?.rest.length && Date.now() - dismissAt > LINGER_MS) {
       dismissed.add(sourceId(target.source));
       watch = undefined;
       hide();

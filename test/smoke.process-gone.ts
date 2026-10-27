@@ -8,7 +8,9 @@ import { join } from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
 import { rgbColor } from '@earendil-works/pi-tui';
 
+const removeStatus = process.argv.includes('--remove-status');
 const dir = mkdtempSync(join(tmpdir(), 'pi-release-gone-'));
+const statusFile = join(dir, 'gx-release-status.json');
 process.env.PI_RELEASE_STATUS_DIRS = dir;
 process.env.PI_RELEASE_HISTORY = join(dir, 'history.json');
 process.env.PI_RELEASE_PROJECTS = dir;
@@ -43,7 +45,7 @@ createReleaseProgress({
 
 try {
   await once(child, 'spawn');
-  writeFileSync(join(dir, 'gx-release-status.json'), JSON.stringify({
+  writeFileSync(statusFile, JSON.stringify({
     version: '9.9.9', phase: 'Building (build.ps1)', state: 'running', pid: child.pid,
     publicationState: 'not-started', startedAtUtc: new Date().toISOString(),
   }));
@@ -51,6 +53,7 @@ try {
   assert.ok(widget, 'live disposable process is discovered');
   assert.doesNotMatch(render(), /process gone/);
   console.log('live process:\n' + render());
+  if (removeStatus) rmSync(statusFile);
   const stopped = once(child, 'exit');
   child.kill();
   await stopped;
@@ -64,7 +67,7 @@ try {
   await wait(6000);
   assert.equal(widget, undefined, 'discovery must not restore the unchanged status');
   assert.deepEqual(notes, [], 'disappearance is not a release success or failure');
-  console.log('PASS: real-clock dismissal, no rediscovery, no completion notification');
+  console.log(`PASS: real-clock dismissal, no rediscovery, no completion notification (status ${removeStatus ? 'removed' : 'retained'})`);
 } finally {
   handlers.session_shutdown({}, ctx);
   if (child.exitCode === null && child.signalCode === null) {

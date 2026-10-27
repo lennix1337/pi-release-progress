@@ -315,8 +315,8 @@ function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<
     if (!target) return;
     if (target.source.kind === 'gh') pollGh(target);
     else {
-      let mtime: number;
-      try { mtime = statSync(target.source.file).mtimeMs; } catch { return; }
+      let mtime = target.source.mtime;
+      try { mtime = statSync(target.source.file).mtimeMs; } catch { /* keep the last snapshot; lifecycle checks still run */ }
       if (mtime !== target.source.mtime) {
         const raw = readJson<Record<string, unknown>>(target.source.file);
         if (raw) { // otherwise mid-write; next poll

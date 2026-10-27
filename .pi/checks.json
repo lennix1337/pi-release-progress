@@ -7,6 +7,16 @@
       "timeoutMs": 60000,
       "onEdit": true
     },
+    "smoke-offline": {
+      "description": "Replay GX and generic status files without a live GitHub lookup",
+      "argv": ["node", "test/smoke.replay.ts", "--offline"],
+      "timeoutMs": 60000
+    },
+    "smoke-process-gone": {
+      "description": "Real-clock process death, 60-second dismissal and no rediscovery (no network)",
+      "argv": ["node", "test/smoke.process-gone.ts"],
+      "timeoutMs": 100000
+    },
     "typecheck": {
       "description": "TypeScript strict typecheck against the Pi 1.4 extension API",
       "argv": ["node", "node_modules/typescript/bin/tsc", "--noEmit", "-p", "."],

@@ -52,7 +52,7 @@ catch { node $rs fail $_.Exception.Message; throw }
 ```
 
 The file defaults to `%TEMP%/pi-release-status.json` (`--file` or `$RELEASE_STATUS_FILE` to change it).
-`pid` defaults to the calling process, so a release that dies without `succeed`/`fail` shows as stalled.
+`pid` defaults to the calling process, so a release that dies without `succeed`/`fail` shows as stalled (`process gone`). Automatically discovered runs hide 60 seconds after success, failure, or detecting a dead process; unchanged status files stay dismissed. A live process (or a status without a PID) does not expire. Runs pinned with `/release ...` stay visible until `/release off`.
 
 Or write the JSON yourself (write to a temp file and rename it over the old one):
 
@@ -88,4 +88,9 @@ The GitHub adapter (`src/adapters/github.ts`) is the smallest example.
 
 ## Develop
 
-`npm test` (unit, plus the CI follow with a faked git/gh layer: no network), `npm run typecheck`, `node test/smoke.replay.ts [run-url]` (drives the real extension with a fake Pi through all three sources; the GitHub part calls `gh run view`, read-only).
+`npm test` (unit, plus the CI follow with a faked git/gh layer: no network), `npm run typecheck`.
+
+- `node test/smoke.replay.ts --offline` replays GX and generic status files through the real extension with a fake Pi host. A supplied run URL explicitly enables the optional read-only `gh run view`; no live lookup runs by default.
+- `node test/smoke.process-gone.ts` uses a disposable process and real timers to check the GX warning stays visible before 60 seconds, disappears afterward, and is not rediscovered. Takes about 70 seconds; no GitHub/provider calls or real release. Status files are isolated and cleaned up.
+
+Both smokes are available through `.pi/checks.json`. They validate the extension/widget chain, not visibility in an existing Pi session; `/reload` or a fresh session is still needed to activate source changes.

@@ -91,6 +91,6 @@ The GitHub adapter (`src/adapters/github.ts`) is the smallest example.
 `npm test` (unit, plus the CI follow with a faked git/gh layer: no network), `npm run typecheck`.
 
 - `node test/smoke.replay.ts --offline` replays GX and generic status files through the real extension with a fake Pi host. A supplied run URL explicitly enables the optional read-only `gh run view`; no live lookup runs by default.
-- `node test/smoke.process-gone.ts` uses a disposable process and real timers to check the GX warning stays visible before 60 seconds, disappears afterward, and is not rediscovered. Takes about 70 seconds; no GitHub/provider calls or real release. Status files are isolated and cleaned up.
+- `node test/smoke.process-gone.ts` uses a disposable process and real timers to check the GX warning stays visible before 60 seconds, disappears afterward, and is not rediscovered. Add `--remove-status` to verify the same lifecycle when the watched status file is deleted. Each run takes about 70 seconds; no GitHub/provider calls or real release. Status files are isolated and cleaned up.
 
-Both smokes are available through `.pi/checks.json`. They validate the extension/widget chain, not visibility in an existing Pi session; `/reload` or a fresh session is still needed to activate source changes.
+All smoke variants are available through `.pi/checks.json`. They validate the extension/widget chain, not visibility in an existing Pi session; `/reload` or a fresh session is still needed to activate source changes.

@@ -311,8 +311,8 @@ test('extension: several runs are followed one after another, with a count', asy
   } finally { s.shutdown(); }
 });
 
-for (const format of ['generic', 'gxmcp']) {
-  test(`extension: ${format} process gone hides after 60 seconds without rediscovery`, async (t) => {
+for (const removed of [false, true]) for (const format of ['generic', 'gxmcp']) {
+  test(`extension: ${format} process gone hides after 60 seconds without rediscovery (status ${removed ? 'removed' : 'retained'})`, async (t) => {
     t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: Date.now() });
     const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
     await once(child, 'spawn');
@@ -325,6 +325,7 @@ for (const format of ['generic', 'gxmcp']) {
     try {
       assert.ok(s.widget(), 'a live release is discovered');
       assert.doesNotMatch(s.widget()!.render(80).join('\n'), /process gone/);
+      if (removed) rmSync(file);
       const stopped = once(child, 'exit');
       child.kill();
       await stopped;
@@ -339,7 +340,7 @@ for (const format of ['generic', 'gxmcp']) {
       assert.deepEqual(s.notes, [], 'process disappearance must not be reported as release success or failure');
     } finally {
       s.shutdown();
-      rmSync(file);
+      rmSync(file, { force: true });
       if (child.exitCode === null && child.signalCode === null) {
         const stopped = once(child, 'exit');
         child.kill();
@@ -349,32 +350,34 @@ for (const format of ['generic', 'gxmcp']) {
   });
 }
 
-for (const state of ['succeeded', 'failed']) {
-  test(`extension: ${state} status still hides after 60 seconds`, async (t) => {
+for (const removed of [false, true]) for (const state of ['succeeded', 'failed']) {
+  test(`extension: ${state} status still hides after 60 seconds (status ${removed ? 'removed' : 'retained'})`, async (t) => {
     t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: Date.now() });
     const file = join(dir, 'finished-release-status.json');
     writeFileSync(file, JSON.stringify({ schema: 'pi-release-progress/1', name: 'Finished release', state, updatedAt: new Date().toISOString() }));
     const s = await session(() => { throw new Error('unexpected network request'); });
     try {
+      if (removed) rmSync(file);
       t.mock.timers.tick(59_000);
       assert.ok(s.widget());
       t.mock.timers.tick(2000);
       assert.equal(s.widget(), undefined);
-    } finally { s.shutdown(); rmSync(file); }
+    } finally { s.shutdown(); rmSync(file, { force: true }); }
   });
 }
 
-for (const pid of [process.pid, undefined]) {
-  test(`extension: running status with ${pid ? 'live' : 'unknown'} PID does not expire`, async (t) => {
+for (const removed of [false, true]) for (const pid of [process.pid, undefined]) {
+  test(`extension: running status with ${pid ? 'live' : 'unknown'} PID does not expire (status ${removed ? 'removed' : 'retained'})`, async (t) => {
     t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: Date.now() });
     const file = join(dir, 'live-release-status.json');
     writeFileSync(file, JSON.stringify({ schema: 'pi-release-progress/1', name: 'Live release', state: 'running', pid, startedAt: new Date().toISOString() }));
     const s = await session(() => { throw new Error('unexpected network request'); });
     try {
+      if (removed) rmSync(file);
       t.mock.timers.tick(120_000);
       assert.ok(s.widget());
       assert.doesNotMatch(s.widget()!.render(80).join('\n'), /process gone/);
-    } finally { s.shutdown(); rmSync(file); }
+    } finally { s.shutdown(); rmSync(file, { force: true }); }
   });
 }
 

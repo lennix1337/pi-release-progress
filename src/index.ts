@@ -9,6 +9,7 @@ import { genericAdapter } from './adapters/generic.ts';
 import { githubAdapter, parseRunSpec, RUN_FIELDS } from './adapters/github.ts';
 import { gxmcpAdapter } from './adapters/gxmcp.ts';
 import { computeProgress, learnRun, locateStep, type Adapter, type History, type Snapshot } from './progress.ts';
+import { prLine, readGitwatchState } from './gitwatch.ts';
 import { renderLines, type Paint } from './render.ts';
 
 const KEY = 'release-progress';
@@ -38,7 +39,7 @@ interface Watch {
   /** Step that was already running when the watch attached: its measured time would be short. */
   partialIndex: number;
   /** Set when started by a push: the repo and the other CI runs of that commit still to follow. */
-  auto?: { repo: string; rest: CiRun[] };
+  auto?: { repo: string; sha?: string; rest: CiRun[] };
   runStartedAt?: number;
   finishedAt?: number;
   processGoneAt?: number;
@@ -176,7 +177,8 @@ function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<
             stepStartedAt: watch.stepStartedAt, runStartedAt: watch.runStartedAt,
             processAlive: watch.snapshot.state !== 'running' || processAlive(watch.snapshot.pid), now: watch.finishedAt ?? Date.now(),
           });
-          return renderLines(view, width, tick, paint);
+          const pr = watch.auto?.sha ? prLine(readGitwatchState(), watch.auto.repo, watch.auto.sha) : undefined;
+          return renderLines(view, width, tick, paint, pr);
         },
         invalidate() {},
       };
@@ -225,7 +227,7 @@ function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<
         saveHistory(target.key, history);
       }
       ctx?.ui.notify(
-        snapshot.state === 'succeeded' ? `${snapshot.title} released` : `${snapshot.title} failed: ${snapshot.error ?? snapshot.phase}`,
+        snapshot.state === 'succeeded' ? `${snapshot.title} ${snapshot.kind === 'ci' ? 'CI passed' : 'released'}` : `${snapshot.title} failed: ${snapshot.error ?? snapshot.phase}`,
         snapshot.state === 'succeeded' ? 'info' : 'error',
       );
     }
@@ -274,17 +276,17 @@ function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<
   };
 
   /** Attach the next CI run of a push; the rest of the queue goes with it. */
-  const attachAuto = async (repo: string, runs: CiRun[]) => {
+  const attachAuto = async (repo: string, runs: CiRun[], sha?: string) => {
     const [next, ...rest] = runs;
     const source: Extract<Source, { kind: 'gh' }> = { kind: 'gh', id: next.id, repo };
-    attach(source, await fetchRun(source), false, { repo, rest });
+    attach(source, await fetchRun(source), false, { repo, sha, rest });
   };
 
   let advancing = false;
   const advanceAuto = (target: Watch) => {
     if (advancing || !target.auto?.rest.length || !target.finishedAt) return;
     advancing = true;
-    attachAuto(target.auto.repo, target.auto.rest)
+    attachAuto(target.auto.repo, target.auto.rest, target.auto.sha)
       .catch(() => { target.auto = undefined; }) // stay on the finished run; it lingers and hides as usual
       .finally(() => { advancing = false; });
   };
@@ -298,7 +300,7 @@ function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<
       if (!found || cancelled()) return;
       if (watch && (watch.pinned || (watch.snapshot.state === 'running' && !watch.auto))) return;
       if (found.runs.length > 1) context.ui.notify(`Following ${found.runs.length} CI runs for ${found.sha.slice(0, 7)} (${found.repo})`, 'info');
-      await attachAuto(found.repo, found.runs);
+      await attachAuto(found.repo, found.runs, found.sha);
     } catch (error) {
       if (!cancelled()) context.ui.notify(`CI follow failed: ${(error as Error).message}`, 'warning');
     }

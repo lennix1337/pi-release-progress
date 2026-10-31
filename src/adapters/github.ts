@@ -49,6 +49,7 @@ export const githubAdapter: Adapter<GhRun> = {
     const state = run.status !== 'completed' ? 'running' : run.conclusion === 'success' ? 'succeeded' : 'failed';
     const ends = run.jobs.map((job) => time(job.completedAt)).filter((t): t is number => t !== undefined);
     return {
+      kind: 'ci',
       title: [run.workflowName ?? run.name, run.displayTitle].filter(Boolean).join(' · '),
       state,
       phase: active?.name ?? '',

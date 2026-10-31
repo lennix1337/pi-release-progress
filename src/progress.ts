@@ -36,6 +36,8 @@ export interface Snapshot {
   endedAt?: number;
   /** The plan is a guess (first run of an undeclared plan): show activity, not a percentage. */
   indeterminate?: boolean;
+  /** What the run is: a release, or the CI run of a push. Drives the wording. */
+  kind?: "release" | "ci";
   /** The status says a new run started in the same file. */
   restarted?: boolean;
 }
@@ -80,6 +82,7 @@ export type RunState = 'running' | 'succeeded' | 'failed' | 'stalled';
 
 export interface ProgressView {
   title: string;
+  kind: "release" | "ci";
   state: RunState;
   fraction: number;
   indeterminate: boolean;
@@ -133,12 +136,13 @@ export function computeProgress(input: ProgressInput): ProgressView {
 
   return {
     title: snap.title,
+    kind: snap.kind ?? "release",
     state,
     fraction,
     indeterminate,
     stepNumber: index + 1,
     stepCount: snap.steps.length,
-    currentLabel: state === 'succeeded' ? 'Released' : shown(step) || snap.phase || 'starting',
+    currentLabel: state === 'succeeded' ? (snap.kind === 'ci' ? 'CI passed' : 'Released') : shown(step) || snap.phase || 'starting',
     nextLabel: state === 'running' ? shown(nextStep) || undefined : undefined,
     remainingSeconds: state === 'running' && !indeterminate ? Math.max(0, total - done - current) : undefined,
     elapsedSeconds: runStartedAt ? (now - runStartedAt) / 1000 : undefined,

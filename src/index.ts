@@ -231,7 +231,13 @@ function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<
     requestRender?.();
   };
 
+  /** What on screen a background CI follow must not replace: a pinned watch, or a release that is still running. */
+  const holdsScreen = () => !!watch && (watch.pinned || (watch.snapshot.state === 'running' && !watch.auto));
+
   const attach = (source: Source, raw: Record<string, unknown>, pinned: boolean, auto?: Watch['auto']): string | undefined => {
+    // A CI follow fetches its run before it attaches; the user may have pinned another run, turned following off or
+    // ended the session meanwhile, and the late attach must not undo that.
+    if (auto && (!ctx || !autoFollow || holdsScreen())) return 'superseded while it was being fetched';
     const adapter = adapterFor(raw);
     if (!adapter) return 'unknown status format';
     const key = adapter.key(raw);
@@ -295,7 +301,7 @@ function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<
     try {
       const found = await findCiRuns(push, output, { run, sleep, cancelled });
       if (!found || cancelled()) return;
-      if (watch && (watch.pinned || (watch.snapshot.state === 'running' && !watch.auto))) return;
+      if (holdsScreen()) return;
       if (found.runs.length > 1) context.ui.notify(`Following ${found.runs.length} CI runs for ${found.sha.slice(0, 7)} (${found.repo})`, 'info');
       await attachAuto(found.repo, found.runs);
     } catch (error) {

@@ -288,6 +288,39 @@ test('extension: does not steal the widget from a pinned or running release', as
   } finally { s.shutdown(); }
 });
 
+test('extension: a CI run fetched after the user pinned another run does not replace it', async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  const calls: Call[] = [];
+  const run: Runner = async (file, args, cwd) => {
+    calls.push({ file, args, cwd });
+    if (file !== 'gh') return `${SHA}\n`;
+    if (args[1] === 'list') return runsJson([21, 'in_progress']);
+    if (args[2] === '21') { await gate; return ghRun(21, 'in_progress', '', 'Auto'); }
+    return ghRun(5, 'in_progress', '', 'Manual');
+  };
+  const handlers: Record<string, (event: unknown, ctx: unknown) => unknown> = {};
+  let command!: (args: string, ctx: unknown) => Promise<void>;
+  let widget: { render(width: number): string[] } | undefined;
+  const ctx = { hasUI: true, cwd: resolve('/w'), ui: { setWidget: (_k: string, f: unknown) => { widget = typeof f === 'function' ? f({ requestRender() {} }, theme) : undefined; }, notify() {} } };
+  createReleaseProgress({ run, sleep: async () => {} })({
+    on: (name: string, handler: never) => { handlers[name] = handler; },
+    registerCommand: (_n: string, spec: { handler: typeof command }) => { command = spec.handler; },
+  } as never);
+  handlers.session_start({}, ctx);
+  try {
+    handlers.tool_result({ toolName: 'bash', input: { command: 'git push' }, content: [{ type: 'text', text: PUSH_OUTPUT }], isError: false }, ctx);
+    for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+    assert.ok(calls.some((c) => c.args.join(' ').startsWith('run view 21')), 'the auto follow is waiting for its run');
+    await command('gh lennix1337/pi-release-progress#5', ctx);
+    release();
+    for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+    const shown = widget?.render(80).join('\n') ?? '';
+    assert.match(shown, /Manual/);
+    assert.doesNotMatch(shown, /Auto/);
+  } finally { release(); handlers.session_shutdown({}, ctx); }
+});
+
 test('extension: several runs are followed one after another, with a count', async (t) => {
   t.mock.timers.enable({ apis: ['setInterval', 'Date'] });
   const state: Record<number, string> = { 1: 'in_progress', 2: 'in_progress' };

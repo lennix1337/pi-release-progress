@@ -1,3 +1,4 @@
+import type { PrLine } from './gitwatch.ts';
 import { formatSpan, type ProgressView } from './progress.ts';
 
 /** Colouring hooks; the extension backs them with Pi's theme, the tests with identity functions. */
@@ -38,15 +39,15 @@ export function renderBar(view: ProgressView, width: number, paint: Paint, tick 
 
 function badge(view: ProgressView, tick: number, paint: Paint): string {
   switch (view.state) {
-    case 'succeeded': return paint.fg('success', '✔ released');
-    case 'failed': return paint.fg('error', '✖ failed');
+    case 'succeeded': return paint.fg('success', view.kind === 'ci' ? '✔ CI passed' : '✔ released');
+    case 'failed': return paint.fg('error', view.kind === 'ci' ? '✖ CI failed' : '✖ failed');
     case 'stalled': return paint.fg('warning', '⚠ process gone');
-    default: return paint.fg('accent', `${SPINNER[tick % SPINNER.length]} releasing`);
+    default: return paint.fg('accent', `${SPINNER[tick % SPINNER.length]} ${view.kind === 'ci' ? 'CI running' : 'releasing'}`);
   }
 }
 
 /** Compact widget: title line, bar line, current/next step line. */
-export function renderLines(view: ProgressView, width: number, tick: number, paint: Paint): string[] {
+export function renderLines(view: ProgressView, width: number, tick: number, paint: Paint, pr?: PrLine): string[] {
   const pct = view.indeterminate ? '' : `${Math.round(view.fraction * 100)}%`.padStart(4);
   const meta = [
     view.state === 'running' && view.remainingSeconds !== undefined ? `~${formatSpan(view.remainingSeconds)} left` : '',
@@ -59,7 +60,7 @@ export function renderLines(view: ProgressView, width: number, tick: number, pai
 
   const sub = view.sub ? `  ${view.sub.done}/${view.sub.total}${view.sub.unit ? ` ${view.sub.unit}` : ''}` : '';
   let step: string;
-  if (view.state === 'succeeded') step = paint.fg('success', `Released${sub}`) + (view.detail ? paint.fg('muted', `  ${view.detail}`) : '');
+  if (view.state === 'succeeded') step = paint.fg('success', `${view.kind === 'ci' ? 'CI passed' : 'Released'}${sub}`) + (view.detail ? paint.fg('muted', `  ${view.detail}`) : '');
   else if (view.state === 'failed') step = paint.fg('error', `✖ ${view.detail ?? view.currentLabel}`);
   else {
     const position = view.indeterminate ? `step ${view.stepNumber} ` : `${view.stepNumber}/${view.stepCount} `;
@@ -67,5 +68,6 @@ export function renderLines(view: ProgressView, width: number, tick: number, pai
     const next = view.nextLabel ? paint.fg('dim', `  → ${view.nextLabel}`) : '';
     step = `${counter}${view.currentLabel}${sub}${next}`;
   }
-  return [head, bar, step].map((line) => paint.fit(line, width));
+  const prRow = pr ? paint.fg(pr.tone, pr.text) : undefined;
+  return [head, bar, step, ...(prRow ? [prRow] : [])].map((line) => paint.fit(line, width));
 }

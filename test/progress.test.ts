@@ -8,6 +8,7 @@ import { genericAdapter, SCHEMA, type GenericStatus } from '../src/adapters/gene
 import { githubAdapter, parseRunSpec, type GhRun } from '../src/adapters/github.ts';
 import { DEFAULT_STEPS, gxmcpAdapter, locateGx, parseSteps, type GxStatus } from '../src/adapters/gxmcp.ts';
 import { computeProgress, learnRun, learnTiming, locateStep, type History, type ProgressInput, type Snapshot } from '../src/progress.ts';
+import { prLine } from '../src/gitwatch.ts';
 import { renderLines, type Paint } from '../src/render.ts';
 
 const plain: Paint = {
@@ -235,4 +236,32 @@ test('release-status CLI writes a status the generic adapter reads', () => {
   assert.equal(raw.state, 'succeeded');
   assert.equal(raw.url, 'https://example.com/r');
   assert.throws(() => cli('progress', 'x', '3'), /non-negative number/);
+});
+
+test('a CI run is labelled as CI, never as a release', () => {
+  const run = (status: string, conclusion: string): GhRun => ({ workflowName: 'ci', status, conclusion, url: 'https://github.com/o/r/actions/runs/1', jobs: [{ name: 'test', status, conclusion }] });
+  for (const [status, conclusion, expected] of [['completed', 'success', '✔ CI passed'], ['in_progress', '', 'CI running'], ['completed', 'failure', '✖ CI failed']] as const) {
+    const snapshot = githubAdapter.read(run(status, conclusion), empty);
+    const view = computeProgress({ snapshot, index: 0, history: empty, stepStartedAt: 0, processAlive: true, now: 0 });
+    const text = renderLines(view, 100, 0, plain).join('\n');
+    assert.ok(text.includes(expected), `${expected} in ${text}`);
+    assert.ok(!/released/i.test(text), text);
+  }
+});
+
+test('the PR line says what a green CI means for the PR', () => {
+  const state = (over: object) => ({ repos: { 'o/r': { snapshots: { 44: { number: 44, head: '53b93de', state: 'OPEN', mergeState: 'CLEAN', auto: false, checks: { state: 'pass', pass: 5, fail: 0, pending: 0 }, ...over } } } } });
+  assert.equal(prLine(state({}), 'o/r', '53b93dec0ffee')?.text, 'PR #44 · 5✓ 0✗ · ready to merge — not merged yet');
+  assert.equal(prLine(state({ state: 'MERGED' }), 'o/r', '53b93dec')?.text, 'PR #44 merged');
+  assert.match(prLine(state({ checks: { state: 'fail', pass: 1, fail: 1, failing: ['unit'] } }), 'o/r', '53b93dec')!.text, /failing: unit/);
+  assert.equal(prLine(state({}), 'o/r', 'deadbeef'), undefined);
+  assert.equal(prLine(undefined, 'o/r', '53b93dec'), undefined);
+});
+
+test('the widget shows the PR line under the step line', () => {
+  const snapshot = githubAdapter.read({ workflowName: 'ci', status: 'completed', conclusion: 'success', url: 'https://github.com/o/r/actions/runs/1', jobs: [{ name: 'test', status: 'completed', conclusion: 'success' }] }, empty);
+  const view = computeProgress({ snapshot, index: 0, history: empty, stepStartedAt: 0, processAlive: true, now: 0 });
+  const lines = renderLines(view, 100, 0, plain, { text: 'PR #44 · ready to merge', tone: 'warning' });
+  assert.equal(lines.length, 4);
+  assert.ok(lines[3].includes('PR #44'));
 });

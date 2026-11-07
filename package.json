@@ -17,6 +17,7 @@
     ]
   },
   "scripts": {
+    "verify": "npm run typecheck && npm test",
     "test": "node --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },

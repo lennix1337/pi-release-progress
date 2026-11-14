@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import type { ExtensionAPI, ExtensionContext, Theme } from '@earendil-works/pi-coding-agent';
 import { mixColors, truncateToWidth } from '@earendil-works/pi-tui';
-import { findCiRuns, parsePush, type CiRun, type Runner } from './autofollow.ts';
+import { findCiRuns, MAX_CONSECUTIVE_ERRORS, parsePush, type CiRun, type Runner } from './autofollow.ts';
 import { genericAdapter } from './adapters/generic.ts';
 import { githubAdapter, parseRunSpec, RUN_FIELDS } from './adapters/github.ts';
 import { gxmcpAdapter } from './adapters/gxmcp.ts';
@@ -42,7 +42,10 @@ interface Watch {
   auto?: { repo: string; sha?: string; rest: CiRun[] };
   runStartedAt?: number;
   finishedAt?: number;
+  /** When a running run was first seen with nothing reporting it any more: its process died, or gh stopped answering. */
   processGoneAt?: number;
+  /** `gh run view` polls that failed in a row; at MAX_CONSECUTIVE_ERRORS the run is no longer polled. */
+  ghFailures: number;
   learned: Record<string, number>;
 }
 
@@ -54,6 +57,9 @@ function processAlive(pid: number | undefined): boolean {
   if (!pid) return true; // nothing to check against
   try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code === 'EPERM'; }
 }
+
+/** Whether something still reports the run: a status file needs its release process, a GitHub run needs gh to answer. */
+const sourceAlive = (target: Watch) => target.ghFailures < MAX_CONSECUTIVE_ERRORS && processAlive(target.snapshot.pid);
 
 const adapterFor = (raw: unknown) => (raw && typeof raw === 'object' ? adapters.find((a) => a.detect(raw as Record<string, unknown>)) : undefined);
 const sourceId = (source: Source) => (source.kind === 'file' ? `${source.file}@${source.mtime}` : `gh:${source.repo ?? ''}#${source.id}`);
@@ -175,7 +181,7 @@ function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<
           const view = computeProgress({
             snapshot: watch.snapshot, index: watch.index, history,
             stepStartedAt: watch.stepStartedAt, runStartedAt: watch.runStartedAt,
-            processAlive: watch.snapshot.state !== 'running' || processAlive(watch.snapshot.pid), now: watch.finishedAt ?? Date.now(),
+            processAlive: watch.snapshot.state !== 'running' || sourceAlive(watch), now: watch.finishedAt ?? Date.now(),
           });
           const pr = watch.auto?.sha ? prLine(readGitwatchState(), watch.auto.repo, watch.auto.sha) : undefined;
           return renderLines(view, width, tick, paint, pr);
@@ -250,7 +256,7 @@ function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<
     const updated = Date.parse(String(raw.updatedAtUtc ?? raw.updatedAt ?? '')) || (source.kind === 'file' ? source.mtime : Date.now());
     const atStart = snapshot.restarted || index <= 0;
     watch = {
-      source, pinned, auto, adapter, key, raw, snapshot, index, learned: {},
+      source, pinned, auto, adapter, key, raw, snapshot, index, learned: {}, ghFailures: 0,
       stepStartedAt: updated,
       partialIndex: atStart ? -1 : index,
       runStartedAt: snapshot.restarted ? updated : undefined,
@@ -272,12 +278,25 @@ function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<
     JSON.parse(await gh(['run', 'view', source.id, ...(source.repo ? ['--repo', source.repo] : []), '--json', RUN_FIELDS], ctx?.cwd)) as Record<string, unknown>;
 
   const pollGh = (target: Watch) => {
-    if (ghInFlight || target.finishedAt || Date.now() - lastGhPoll < GH_POLL_MS || target.source.kind !== 'gh') return;
+    const source = target.source;
+    if (ghInFlight || target.finishedAt || !sourceAlive(target) || Date.now() - lastGhPoll < GH_POLL_MS || source.kind !== 'gh') return;
     ghInFlight = true;
     lastGhPoll = Date.now();
-    fetchRun(target.source)
-      .then((raw) => { if (watch === target) ingest(target, raw); })
-      .catch(() => { /* transient; next poll */ })
+    fetchRun(source)
+      .then((raw) => {
+        if (watch !== target) return;
+        ingest(target, raw);
+        target.ghFailures = 0;
+      })
+      .catch((error: unknown) => {
+        // A failed poll is retried by the next one. Several in a row are a gh that stopped working (expired login,
+        // deleted run, no network): polling on would show the run as running forever, so say why and stop.
+        if (watch !== target || ++target.ghFailures < MAX_CONSECUTIVE_ERRORS) return;
+        if (target.auto) target.auto.rest = []; // the other runs of the push would be asked of the same failing gh
+        const reason = (error instanceof Error ? error.message : String(error)).split('\n')[0];
+        const resume = `/release gh ${source.repo ? `${source.repo}#` : ''}${source.id}`;
+        ctx?.ui.notify(`Stopped following ${target.snapshot.title}: ${MAX_CONSECUTIVE_ERRORS} polls in a row failed (${reason}). Resume with ${resume}`, 'warning');
+      })
       .finally(() => { ghInFlight = false; });
   };
 
@@ -327,7 +346,7 @@ function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<
         }
       }
     }
-    if (target.snapshot.state === 'running' && !processAlive(target.snapshot.pid)) target.processGoneAt ??= Date.now();
+    if (target.snapshot.state === 'running' && !sourceAlive(target)) target.processGoneAt ??= Date.now();
     else target.processGoneAt = undefined;
     advanceAuto(target);
     const dismissAt = target.finishedAt ?? target.processGoneAt;

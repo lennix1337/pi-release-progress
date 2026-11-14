@@ -344,6 +344,76 @@ test('extension: several runs are followed one after another, with a count', asy
   } finally { s.shutdown(); }
 });
 
+/** gh for a push whose runs stay in progress: the attach answers, then poll 1, 2, ... of `run view` fails when `fails(poll)` says so. */
+function flakyGh(fails: (poll: number) => boolean, runs: [number, string][] = [[77, 'in_progress']]) {
+  const views: string[] = [];
+  const gh = (args: string[]) => {
+    if (args[1] === 'list') return runsJson(...runs);
+    views.push(args[2]);
+    if (views.length > 1 && fails(views.length - 1)) throw new Error('HTTP 401: Bad credentials (https://api.github.com/graphql)\nTry authenticating with: gh auth login');
+    return ghRun(Number(args[2]), 'in_progress');
+  };
+  return { gh, views };
+}
+
+test('extension: gh failing on every poll of a followed run warns once with the resume command, stops polling and hides the widget', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: Date.now() });
+  const { gh, views } = flakyGh(() => true);
+  const s = await session(gh);
+  const wait = async (seconds: number) => { for (let i = 0; i < seconds; i++) { t.mock.timers.tick(1000); await s.flush(); } };
+  try {
+    s.toolResult({ command: 'git push' });
+    await s.flush();
+    assert.match(s.widget()?.render(80).join('\n') ?? '', /CI running/);
+    await wait(20);
+    assert.equal(s.notes.length, 1, `one warning after three failed polls, got ${JSON.stringify(s.notes)}`);
+    assert.match(s.notes[0], /HTTP 401: Bad credentials/);
+    assert.doesNotMatch(s.notes[0], /Try authenticating/, 'only the first line of the gh error');
+    assert.match(s.notes[0], /\/release gh lennix1337\/pi-release-progress#77/);
+    const lost = s.widget()?.render(80).join('\n') ?? '';
+    assert.match(lost, /not followed/);
+    assert.doesNotMatch(lost, /CI running/);
+    await wait(40);
+    assert.ok(s.widget(), 'the warning stays for the linger period');
+    await wait(20);
+    assert.equal(s.widget(), undefined, 'hidden after the same 60-second delay as a finished run');
+    await wait(520);
+    assert.equal(views.length, 4, 'the attach and three failed polls, then no more gh calls');
+    assert.equal(s.notes.length, 1);
+  } finally { s.shutdown(); }
+});
+
+test('extension: gh failures that never reach three in a row stay silent and the run keeps being followed', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: Date.now() });
+  const { gh, views } = flakyGh((poll) => poll % 3 !== 0); // fail, fail, answer, fail, fail, answer...
+  const s = await session(gh);
+  const wait = async (seconds: number) => { for (let i = 0; i < seconds; i++) { t.mock.timers.tick(1000); await s.flush(); } };
+  try {
+    s.toolResult({ command: 'git push' });
+    await s.flush();
+    await wait(30);
+    const halfway = views.length;
+    await wait(30);
+    assert.ok(halfway > 4 && views.length > halfway, `polling goes on past three failures in total: ${halfway} then ${views.length} run view calls`);
+    assert.deepEqual(s.notes, []);
+    assert.match(s.widget()?.render(80).join('\n') ?? '', /CI running/);
+  } finally { s.shutdown(); }
+});
+
+test('extension: a run that stops being followed leaves even when other runs of the push are queued', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: Date.now() });
+  const { gh, views } = flakyGh(() => true, [[77, 'in_progress'], [78, 'in_progress']]);
+  const s = await session(gh);
+  try {
+    s.toolResult({ command: 'git push' });
+    await s.flush();
+    for (let i = 0; i < 90; i++) { t.mock.timers.tick(1000); await s.flush(); }
+    assert.equal(s.widget(), undefined);
+    assert.ok(!views.includes('78'), 'the queued run is not asked of the same failing gh');
+    assert.equal(s.notes.filter((note) => /#77/.test(note)).length, 1, JSON.stringify(s.notes));
+  } finally { s.shutdown(); }
+});
+
 for (const removed of [false, true]) for (const format of ['generic', 'gxmcp']) {
   test(`extension: ${format} process gone hides after 60 seconds without rediscovery (status ${removed ? 'removed' : 'retained'})`, async (t) => {
     t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: Date.now() });

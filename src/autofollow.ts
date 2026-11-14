@@ -32,7 +32,8 @@ const FIRST_WAIT_MS = 3000;
 const RETRY_WAIT_MS = 5000;
 const MAX_ATTEMPTS = 12; // ~58 s: the run shows up a few seconds after the push
 const SIBLING_WAIT_MS = 3000; // other workflows of the same push register a moment apart
-const MAX_CONSECUTIVE_ERRORS = 3;
+/** gh failures in a row that end the retrying, in the run lookup here and in the poll of a followed run: fewer are a blip. */
+export const MAX_CONSECUTIVE_ERRORS = 3;
 
 const ARG = String.raw`(?:"[^"]*"|'[^']*'|[^\s;&|]+)`;
 const PUSH = new RegExp(String.raw`(?:^|[\s;&|(])git((?:\s+(?:-C\s+${ARG}|-c\s+${ARG}|--[\w-]+(?:=${ARG})?))*)\s+push(?=[\s;&|)]|$)`);

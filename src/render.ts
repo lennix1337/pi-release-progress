@@ -41,7 +41,7 @@ function badge(view: ProgressView, tick: number, paint: Paint): string {
   switch (view.state) {
     case 'succeeded': return paint.fg('success', view.kind === 'ci' ? '✔ CI passed' : '✔ released');
     case 'failed': return paint.fg('error', view.kind === 'ci' ? '✖ CI failed' : '✖ failed');
-    case 'stalled': return paint.fg('warning', '⚠ process gone');
+    case 'stalled': return paint.fg('warning', view.kind === 'ci' ? '⚠ not followed' : '⚠ process gone');
     default: return paint.fg('accent', `${SPINNER[tick % SPINNER.length]} ${view.kind === 'ci' ? 'CI running' : 'releasing'}`);
   }
 }

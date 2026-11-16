@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import type { ExtensionAPI, ExtensionContext, Theme } from '@earendil-works/pi-coding-agent';
@@ -11,6 +11,7 @@ import { gxmcpAdapter } from './adapters/gxmcp.ts';
 import { computeProgress, learnRun, locateStep, type Adapter, type History, type Snapshot } from './progress.ts';
 import { prLine, readGitwatchState } from './gitwatch.ts';
 import { renderLines, type Paint } from './render.ts';
+import { StatusDirs } from './status-dirs.ts';
 
 const KEY = 'release-progress';
 const POLL_MS = 1000;
@@ -98,14 +99,12 @@ export interface Deps {
 const autoFollowDefault = !/^(off|0|false|no)$/i.test(process.env.PI_RELEASE_AUTO ?? '');
 
 /** Newest fresh status file any adapter understands, if its run is live or just finished. */
-function discover(dismissed: Set<string>): Source | undefined {
+function discover(dismissed: Set<string>, dirs: StatusDirs): Source | undefined {
   const now = Date.now();
   const found: { file: string; mtime: number }[] = [];
-  for (const dir of statusDirs) {
-    let entries: string[];
-    try { entries = readdirSync(dir); } catch { continue; }
-    for (const entry of entries) {
-      if (!STATUS_FILE.test(entry) || entry.endsWith('.publication.json')) continue;
+  for (const { dir, names } of dirs.entries()) {
+    for (const entry of names) {
+      if (entry.endsWith('.publication.json')) continue;
       const file = join(dir, entry);
       try {
         const mtime = statSync(file).mtimeMs;
@@ -152,6 +151,7 @@ function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<
   let watch: Watch | undefined;
   let history: History = { seconds: {} };
   const dismissed = new Set<string>();
+  const dirs = new StatusDirs(statusDirs, STATUS_FILE);
   let pollTimer: ReturnType<typeof setInterval> | undefined;
   let discoverTimer: ReturnType<typeof setInterval> | undefined;
   let frameTimer: ReturnType<typeof setInterval> | undefined;
@@ -359,7 +359,7 @@ function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<
 
   const scan = () => {
     if (watch && (watch.pinned || watch.snapshot.state === 'running')) return;
-    const source = discover(dismissed);
+    const source = discover(dismissed, dirs);
     if (source?.kind === 'file' && (watch?.source.kind !== 'file' || source.file !== watch.source.file)) attachFile(source.file, false);
   };
 
@@ -385,6 +385,7 @@ function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<
     followSeq++;
     clearInterval(pollTimer);
     clearInterval(discoverTimer);
+    dirs.close();
     hide();
     watch = undefined;
     ctx = undefined;
@@ -438,7 +439,7 @@ function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<
         if (error) context.ui.notify(`Cannot follow ${arg}: ${error}`, 'error');
         return;
       }
-      const source = watch?.source ?? discover(new Set());
+      const source = watch?.source ?? discover(new Set(), dirs);
       if (!source) {
         context.ui.notify(`No release running. Watching ${statusDirs.join(', ')} for *release*status*.json; /release gh follows a GitHub Actions run.`, 'info');
         return;

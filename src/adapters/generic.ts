@@ -1,5 +1,5 @@
-// The open format: any release script, in any language, writes this JSON
-// (directly or through bin/release-status.mjs) and gets the widget.
+
+
 import { locateStep, type Adapter, type Step, type SubProgress } from '../progress.ts';
 
 export const SCHEMA = 'pi-release-progress/1';
@@ -37,7 +37,7 @@ export const genericAdapter: Adapter<GenericStatus> = {
   key: (s) => `generic:${s.name}`,
   read(s, history, previous) {
     const declared = s.steps?.map((st): Step => (typeof st === 'string' ? { label: st } : { label: st.label, weight: st.weight }));
-    // Without a declared plan, keep the steps already seen in this run, else what earlier runs taught.
+
     const known = previous?.steps.map((st) => st.label) ?? history.steps ?? [];
     const steps = declared ?? known.map((label): Step => ({ label }));
     const phase = s.step ?? '';

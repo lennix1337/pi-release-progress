@@ -1,6 +1,6 @@
-// Pure progress model shared by every release source. No Pi or filesystem imports,
-// so the tests drive it with plain objects. Adapters (src/adapters) turn each source's
-// status document into a Snapshot; this file turns a Snapshot into a ProgressView.
+
+
+
 
 export interface Step {
   /** Stable name; durations are learned under it. */
@@ -122,7 +122,7 @@ export function computeProgress(input: ProgressInput): ProgressView {
   if (step && !step.done) {
     if (snap.sub && snap.sub.total > 0) current = weight * Math.min(1, snap.sub.done / snap.sub.total);
     else if (weight > 0) {
-      // Approach the step weight asymptotically, so an overrun slows down instead of claiming 100%.
+      // external: Asymptotic progress avoids showing 100% before an overrun ends.
       current = weight * (1 - Math.exp((-1.5 * (now - (step.startedAt ?? input.stepStartedAt))) / 1000 / weight));
     }
   }

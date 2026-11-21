@@ -19,7 +19,7 @@ const plain: Paint = {
 };
 const empty: History = { seconds: {} };
 
-// The GX adapter, with a projects root that has no checkout, so it uses DEFAULT_STEPS.
+
 const gx = gxmcpAdapter(join(tmpdir(), 'no-such-projects-root'));
 
 function gxInput(over: { phase: string; state?: string; status?: Partial<GxStatus>; history?: History; now?: number; processAlive?: boolean; index?: number }): ProgressInput {

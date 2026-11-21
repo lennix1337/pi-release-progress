@@ -20,6 +20,7 @@ export class StatusDirs {
     this.list = list;
   }
 
+
   /** Matching names per directory; a directory that cannot be read is skipped. */
   entries(): { dir: string; names: string[] }[] {
     const result: { dir: string; names: string[] }[] = [];
@@ -51,6 +52,6 @@ export class StatusDirs {
       });
       watcher.on('error', () => { watcher.close(); this.watchers.delete(dir); });
       this.watchers.set(dir, watcher);
-    } catch { /* no watcher: list on every call */ }
+    } catch {  }
   }
 }

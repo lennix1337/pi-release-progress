@@ -37,7 +37,7 @@ test('parsePush: directory comes from cd prefixes (last wins, relative ones stac
   assert.deepEqual(parsePush('git -C /srv/other push', '/w'), { dir: resolve('/srv/other') });
   assert.deepEqual(parsePush('git -C "sub dir" push', '/w/base'), { dir: resolve('/w/base/sub dir') });
   assert.deepEqual(parsePush('cd /srv/repo && git -C pkg push', '/w'), { dir: resolve('/srv/repo/pkg') });
-  assert.deepEqual(parsePush('git push && cd /elsewhere', '/w'), { dir: resolve('/w') }); // cd after the push does not count
+  assert.deepEqual(parsePush('git push && cd /elsewhere', '/w'), { dir: resolve('/w') });
 });
 
 test('parseGithubRemote: github.com only', () => {
@@ -142,7 +142,7 @@ test('findCiRuns: transient gh errors are retried, persistent ones surface', asy
   assert.equal(broken.calls.filter((c) => c.file === 'gh').length, 3);
 });
 
-// ---- the extension wired to Pi's tool_result event, with fake git/gh and fake timers ----
+
 
 const dir = mkdtempSync(join(tmpdir(), 'pi-release-auto-'));
 process.env.PI_RELEASE_STATUS_DIRS = dir;
@@ -280,7 +280,7 @@ test('extension: does not steal the widget from a pinned or running release', as
   const gh = (args: string[]) => (args[1] === 'list' ? runsJson([21, 'in_progress']) : ghRun(21, 'in_progress', '', 'Auto'));
   const s = await session(gh);
   try {
-    await s.command('gh lennix1337/pi-release-progress#5'); // pinned manual follow
+    await s.command('gh lennix1337/pi-release-progress#5');
     await s.flush();
     const before = ghCalls(s.calls).length;
     s.toolResult({ command: 'git push' });
@@ -344,7 +344,7 @@ test('extension: several runs are followed one after another, with a count', asy
   } finally { s.shutdown(); }
 });
 
-/** gh for a push whose runs stay in progress: the attach answers, then poll 1, 2, ... of `run view` fails when `fails(poll)` says so. */
+
 function flakyGh(fails: (poll: number) => boolean, runs: [number, string][] = [[77, 'in_progress']]) {
   const views: string[] = [];
   const gh = (args: string[]) => {
@@ -385,7 +385,7 @@ test('extension: gh failing on every poll of a followed run warns once with the 
 
 test('extension: gh failures that never reach three in a row stay silent and the run keeps being followed', async (t) => {
   t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: Date.now() });
-  const { gh, views } = flakyGh((poll) => poll % 3 !== 0); // fail, fail, answer, fail, fail, answer...
+  const { gh, views } = flakyGh((poll) => poll % 3 !== 0);
   const s = await session(gh);
   const wait = async (seconds: number) => { for (let i = 0; i < seconds; i++) { t.mock.timers.tick(1000); await s.flush(); } };
   try {

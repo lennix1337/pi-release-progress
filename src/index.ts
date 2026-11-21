@@ -18,8 +18,8 @@ const POLL_MS = 1000;
 const GH_POLL_MS = 5000;
 const FRAME_MS = 250;
 const DISCOVER_MS = 5000;
-const FRESH_MS = 10 * 60_000; // a status file untouched this long is not a live run
-const LINGER_MS = 60_000; // how long a finished run stays on screen
+const FRESH_MS = 10 * 60_000; // external: An unchanged status file cannot establish that a run remains live indefinitely.
+const LINGER_MS = 60_000;
 const STATUS_FILE = /release.*status.*\.json$/i;
 
 const statusDirs = (process.env.PI_RELEASE_STATUS_DIRS?.split(delimiter) ?? ['C:/tmp', tmpdir()]).filter(Boolean);
@@ -37,15 +37,15 @@ interface Watch {
   snapshot: Snapshot;
   index: number;
   stepStartedAt: number;
-  /** Step that was already running when the watch attached: its measured time would be short. */
+
   partialIndex: number;
-  /** Set when started by a push: the repo and the other CI runs of that commit still to follow. */
+
   auto?: { repo: string; sha?: string; rest: CiRun[] };
   runStartedAt?: number;
   finishedAt?: number;
-  /** When a running run was first seen with nothing reporting it any more: its process died, or gh stopped answering. */
+
   processGoneAt?: number;
-  /** `gh run view` polls that failed in a row; at MAX_CONSECUTIVE_ERRORS the run is no longer polled. */
+
   ghFailures: number;
   learned: Record<string, number>;
 }
@@ -55,11 +55,11 @@ function readJson<T>(path: string): T | undefined {
 }
 
 function processAlive(pid: number | undefined): boolean {
-  if (!pid) return true; // nothing to check against
+  if (!pid) return true;
   try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code === 'EPERM'; }
 }
 
-/** Whether something still reports the run: a status file needs its release process, a GitHub run needs gh to answer. */
+
 const sourceAlive = (target: Watch) => target.ghFailures < MAX_CONSECUTIVE_ERRORS && processAlive(target.snapshot.pid);
 
 const adapterFor = (raw: unknown) => (raw && typeof raw === 'object' ? adapters.find((a) => a.detect(raw as Record<string, unknown>)) : undefined);
@@ -77,7 +77,7 @@ function saveHistory(key: string, history: History): void {
     const tmp = `${historyPath}.${process.pid}.tmp`;
     writeFileSync(tmp, JSON.stringify(all, null, 2));
     renameSync(tmp, historyPath);
-  } catch { /* history is best effort */ }
+  } catch {  }
 }
 
 const execRunner: Runner = (file, args, cwd) =>
@@ -98,7 +98,7 @@ export interface Deps {
 
 const autoFollowDefault = !/^(off|0|false|no)$/i.test(process.env.PI_RELEASE_AUTO ?? '');
 
-/** Newest fresh status file any adapter understands, if its run is live or just finished. */
+
 function discover(dismissed: Set<string>, dirs: StatusDirs): Source | undefined {
   const now = Date.now();
   const found: { file: string; mtime: number }[] = [];
@@ -109,7 +109,7 @@ function discover(dismissed: Set<string>, dirs: StatusDirs): Source | undefined 
       try {
         const mtime = statSync(file).mtimeMs;
         if (now - mtime <= FRESH_MS && !dismissed.has(`${file}@${mtime}`)) found.push({ file, mtime });
-      } catch { /* vanished */ }
+      } catch {  }
     }
   }
   for (const { file, mtime } of found.sort((a, b) => b.mtime - a.mtime)) {
@@ -146,7 +146,7 @@ export function createReleaseProgress({ run, sleep }: Deps) {
 function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<void>) {
   const gh = (args: string[], cwd: string | undefined) => run('gh', args, cwd ?? process.cwd());
   let autoFollow = autoFollowDefault;
-  let followSeq = 0; // bumped by every push and by /release off: a lookup that sees a newer value gives up
+  let followSeq = 0;
   let ctx: ExtensionContext | undefined;
   let watch: Watch | undefined;
   let history: History = { seconds: {} };
@@ -202,7 +202,7 @@ function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<
     });
   };
 
-  /** Fold a new status document into the watch: step changes, learned durations, completion. */
+
   const ingest = (target: Watch, raw: Record<string, unknown>) => {
     const now = Date.now();
     const previous = target.snapshot;
@@ -240,12 +240,12 @@ function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<
     requestRender?.();
   };
 
-  /** What on screen a background CI follow must not replace: a pinned watch, or a release that is still running. */
+
   const holdsScreen = () => !!watch && (watch.pinned || (watch.snapshot.state === 'running' && !watch.auto));
 
   const attach = (source: Source, raw: Record<string, unknown>, pinned: boolean, auto?: Watch['auto']): string | undefined => {
-    // A CI follow fetches its run before it attaches; the user may have pinned another run, turned following off or
-    // ended the session meanwhile, and the late attach must not undo that.
+    // external: A background CI lookup may finish after a user pins another run or ends the session.
+
     if (auto && (!ctx || !autoFollow || holdsScreen())) return 'superseded while it was being fetched';
     const adapter = adapterFor(raw);
     if (!adapter) return 'unknown status format';
@@ -289,10 +289,10 @@ function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<
         target.ghFailures = 0;
       })
       .catch((error: unknown) => {
-        // A failed poll is retried by the next one. Several in a row are a gh that stopped working (expired login,
-        // deleted run, no network): polling on would show the run as running forever, so say why and stop.
+        // external: Repeated gh failures would otherwise leave a run shown as running forever.
+
         if (watch !== target || ++target.ghFailures < MAX_CONSECUTIVE_ERRORS) return;
-        if (target.auto) target.auto.rest = []; // the other runs of the push would be asked of the same failing gh
+        if (target.auto) target.auto.rest = [];
         const reason = (error instanceof Error ? error.message : String(error)).split('\n')[0];
         const resume = `/release gh ${source.repo ? `${source.repo}#` : ''}${source.id}`;
         ctx?.ui.notify(`Stopped following ${target.snapshot.title}: ${MAX_CONSECUTIVE_ERRORS} polls in a row failed (${reason}). Resume with ${resume}`, 'warning');
@@ -300,7 +300,7 @@ function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<
       .finally(() => { ghInFlight = false; });
   };
 
-  /** Attach the next CI run of a push; the rest of the queue goes with it. */
+
   const attachAuto = async (repo: string, runs: CiRun[], sha?: string) => {
     const [next, ...rest] = runs;
     const source: Extract<Source, { kind: 'gh' }> = { kind: 'gh', id: next.id, repo };
@@ -312,11 +312,11 @@ function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<
     if (advancing || !target.auto?.rest.length || !target.finishedAt) return;
     advancing = true;
     attachAuto(target.auto.repo, target.auto.rest, target.auto.sha)
-      .catch(() => { target.auto = undefined; }) // stay on the finished run; it lingers and hides as usual
+      .catch(() => { target.auto = undefined; })
       .finally(() => { advancing = false; });
   };
 
-  /** Look for the CI runs of a push in the background and show them unless something more important is on screen. */
+
   const followPush = async (push: { dir: string }, output: string, context: ExtensionContext) => {
     const seq = ++followSeq;
     const cancelled = () => seq !== followSeq || !autoFollow;
@@ -337,10 +337,10 @@ function register(pi: ExtensionAPI, run: Runner, sleep: (ms: number) => Promise<
     if (target.source.kind === 'gh') pollGh(target);
     else {
       let mtime = target.source.mtime;
-      try { mtime = statSync(target.source.file).mtimeMs; } catch { /* keep the last snapshot; lifecycle checks still run */ }
+      try { mtime = statSync(target.source.file).mtimeMs; } catch {  }
       if (mtime !== target.source.mtime) {
         const raw = readJson<Record<string, unknown>>(target.source.file);
-        if (raw) { // otherwise mid-write; next poll
+        if (raw) { // external: A status file may be observed while it is being written.
           target.source.mtime = mtime;
           ingest(target, raw);
         }

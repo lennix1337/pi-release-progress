@@ -1,5 +1,5 @@
-// Follow CI after `git push`: spot a successful push in a bash tool call, work out which
-// GitHub repo and commit it published, and wait for the workflow runs of that commit to appear.
+
+
 import { resolve } from 'node:path';
 
 /** Runs an external command and resolves with stdout; rejects on failure or timeout. Injected so tests never hit git/gh. */
@@ -30,8 +30,8 @@ export interface FindOptions {
 
 const FIRST_WAIT_MS = 3000;
 const RETRY_WAIT_MS = 5000;
-const MAX_ATTEMPTS = 12; // ~58 s: the run shows up a few seconds after the push
-const SIBLING_WAIT_MS = 3000; // other workflows of the same push register a moment apart
+const MAX_ATTEMPTS = 12; // external: GitHub Actions runs can appear seconds after a push.
+const SIBLING_WAIT_MS = 3000; // external: Workflows for a push can register at different times.
 /** gh failures in a row that end the retrying, in the run lookup here and in the poll of a followed run: fewer are a blip. */
 export const MAX_CONSECUTIVE_ERRORS = 3;
 
@@ -41,7 +41,7 @@ const CD = new RegExp(String.raw`(?:^|[;&|(]\s*)cd\s+(?:/d\s+)?(${ARG})`, 'g');
 const DASH_C = new RegExp(String.raw`-C\s+(${ARG})`, 'g');
 
 const unquote = (arg: string) => arg.replace(/^(["'])(.*)\1$/, '$2');
-/** Git Bash style `/c/dir` is a drive path on Windows. */
+// external: Git Bash expresses Windows drive paths as /c/dir.
 const nativePath = (path: string) => (process.platform === 'win32' ? path.replace(/^\/([a-zA-Z])(?=\/|$)/, '$1:') : path);
 
 /** `{dir}` when `command` pushes (not a dry run or a deletion); undefined otherwise. */
@@ -76,7 +76,7 @@ function parseRuns(json: string): CiRun[] {
   return list.filter((run) => run && run.databaseId).map((run) => ({ id: String(run.databaseId), status: String(run.status), workflow: run.workflowName }));
 }
 
-/** Incomplete runs first (they are what the user is waiting on), then oldest first. */
+
 const byUrgency = (a: CiRun, b: CiRun) => Number(a.status === 'completed') - Number(b.status === 'completed') || Number(a.id) - Number(b.id);
 
 /**
@@ -116,7 +116,7 @@ export async function findCiRuns(push: PushCall, output: string, options: FindOp
     try {
       const more = await list();
       for (const extra of more) if (!runs.some((known) => known.id === extra.id)) runs.push(extra);
-    } catch { /* the first listing is enough */ }
+    } catch {  }
     return { repo, sha, runs: runs.sort(byUrgency) };
   }
   return undefined;

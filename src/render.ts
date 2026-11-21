@@ -16,7 +16,7 @@ const PARTIALS = [' ', '▏', '▎', '▍', '▌', '▋', '▊', '▉'];
 
 export function renderBar(view: ProgressView, width: number, paint: Paint, tick = 0): string {
   if (view.indeterminate) {
-    // Unknown plan: a block sweeping back and forth shows activity without inventing a percentage.
+    // external: An undeclared plan cannot support a meaningful percentage.
     const size = Math.max(3, Math.floor(width / 6));
     const span = Math.max(1, width - size);
     const phase = tick % (2 * span);

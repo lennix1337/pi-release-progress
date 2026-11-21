@@ -1,5 +1,5 @@
-// Genexus18MCP release.ps1 -StatusFile: steps parsed from its `Step "..."` calls,
-// sub-phases (issue-649-closed...) mapped to their step, issues closed as sub-progress.
+
+
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { escapeRegExp, locateStep, type Adapter, type Step } from '../progress.ts';
@@ -19,7 +19,7 @@ export interface GxStatus {
 
 const BUMP_PATTERN = /^(Bumping version|Synchronizing release metadata for|Realigning release metadata)/;
 
-// Seconds per step before any measured history. Steps a normal run skips weigh 0.
+
 const DEFAULT_SECONDS: [RegExp, number][] = [
   [/^Building \(build\.ps1\)/, 240],
   [/^Building Nexus IDE VSIX/, 90],
@@ -35,7 +35,7 @@ const DEFAULT_SECONDS: [RegExp, number][] = [
   [/^(Verifying existing|Reusing existing tag|Uploading assets to existing)/, 0],
 ];
 
-// Sub-phases release.ps1 writes between Steps, mapped to the Step they belong to.
+
 const SUB_PHASES: [RegExp, RegExp][] = [
   [/^release-issues-(collected|validated)$/, /^Snapshotting release issues$/],
   [/^artifacts-ready$/, /^Building Nexus IDE VSIX$/],
@@ -86,7 +86,7 @@ export const DEFAULT_STEPS: Step[] = parseSteps([
 
 const parsed = new Map<string, { mtime: number; steps: Step[] }>();
 
-/** Newest release.ps1 of the repository, in its checkout or one of its worktrees. */
+
 function findSteps(repository: string | undefined, projectsRoot: string): Step[] {
   const name = repository?.split('/').pop();
   if (!name) return DEFAULT_STEPS;
@@ -94,7 +94,7 @@ function findSteps(repository: string | undefined, projectsRoot: string): Step[]
   const candidates = [join(root, 'release.ps1')];
   try {
     for (const entry of readdirSync(join(root, 'worktrees'))) candidates.push(join(root, 'worktrees', entry, 'release.ps1'));
-  } catch { /* no worktrees */ }
+  } catch {  }
   const newest = candidates.filter(existsSync).map((file) => ({ file, mtime: statSync(file).mtimeMs })).sort((a, b) => b.mtime - a.mtime)[0];
   if (!newest) return DEFAULT_STEPS;
   const cached = parsed.get(newest.file);

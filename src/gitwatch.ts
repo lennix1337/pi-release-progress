@@ -1,5 +1,5 @@
-// The pull-request side of a push: pi-gitwatch keeps one state file with every PR it follows,
-// so the progress widget can say what the CI run means for the PR instead of only "passed".
+
+
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Writes the pi-release-progress/1 status file, so any release script (bash, PowerShell,
-// make, npm scripts...) can drive the Pi widget with one line per step.
+
+
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -71,7 +71,7 @@ if (command === 'start') {
 }
 status.updatedAt = new Date().toISOString();
 
-// Write then rename, so the widget never reads half a file.
+// external: Atomic rename prevents readers from seeing partial status files.
 mkdirSync(dirname(file), { recursive: true });
 const tmp = `${file}.${process.pid}.tmp`;
 writeFileSync(tmp, `${JSON.stringify(status, null, 2)}\n`);

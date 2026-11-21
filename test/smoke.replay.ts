@@ -1,7 +1,7 @@
-// Manual smoke: loads the real extension with a fake Pi and prints widget frames for
-// three sources: a release.ps1-style status file, a generic script driven by the
-// release-status CLI, and (with `gh` signed in) a real GitHub Actions run.
-// Run: node test/smoke.replay.ts --offline (or supply a run-url for live GitHub).
+
+
+
+
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -38,7 +38,7 @@ extension({
 const frame = (label: string) => console.log(`--- ${label}\n${widget ? widget.render(90).join('\n') : '(no widget)'}`);
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// 1. Genexus18MCP release.ps1 status file.
+
 const gxFile = join(dir, 'gx-release-999-status.json');
 const gx = (phase: string, state = 'running', extra: object = {}) =>
   writeFileSync(gxFile, JSON.stringify({ version: '9.9.9', tag: 'v9.9.9', repository: 'lennix1337/Genexus18MCP', phase, state, pid: process.pid, publicationState: 'not-started', updatedAtUtc: new Date().toISOString(), ...extra }));
@@ -57,7 +57,7 @@ for (const [phase, extra] of [
 }
 await command?.('off', ctx);
 
-// 2. Any script, through the CLI: first run has no plan (indeterminate), second run learned it.
+
 const file = join(dir, 'my-app-release-status.json');
 const cli = (...args: string[]) => execFileSync(process.execPath, ['bin/release-status.mjs', ...args, '--file', file]);
 for (const runNumber of [1, 2]) {
@@ -74,7 +74,7 @@ for (const runNumber of [1, 2]) {
 }
 await command?.('off', ctx);
 
-// 3. A GitHub Actions run, only when explicitly requested (read-only `gh run view`).
+
 const runUrl = process.argv[2];
 if (runUrl && runUrl !== '--offline') {
   await command?.(`gh ${runUrl}`, ctx);

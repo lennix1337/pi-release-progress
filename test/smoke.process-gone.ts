@@ -1,4 +1,4 @@
-// Real-clock integration smoke. Isolated status files, no GitHub or provider calls.
+
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';

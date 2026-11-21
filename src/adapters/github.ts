@@ -1,6 +1,6 @@
-// A GitHub Actions run (`gh run view --json`): each job is a step, the running
-// job's own steps are the sub-progress. Covers releases that publish from CI
-// (semantic-release, changesets, npm publish workflows...).
+
+
+
 import type { Adapter, Step } from '../progress.ts';
 
 export const RUN_FIELDS = 'databaseId,name,displayTitle,workflowName,status,conclusion,url,createdAt,jobs';
@@ -40,7 +40,7 @@ export const githubAdapter: Adapter<GhRun> = {
   key: (run) => `github:${/github\.com\/([^/]+\/[^/]+)/.exec(run.url)?.[1] ?? '?'}:${run.workflowName ?? run.name}`,
   read(run, history) {
     const steps: Step[] = run.jobs.map((job) => ({ label: job.name, weight: 60, done: job.status === 'completed', startedAt: time(job.startedAt) }));
-    // Jobs that wait on `needs` are absent until they are queued; earlier runs know them.
+    // external: GitHub Actions omits jobs waiting on needs until they are queued.
     for (const label of history.steps ?? []) if (!steps.some((s) => s.label === label)) steps.push({ label, weight: 60 });
     const active = run.jobs.find((job) => job.status === 'in_progress') ?? run.jobs.find((job) => job.status !== 'completed');
     const jobSteps = active?.steps ?? [];
